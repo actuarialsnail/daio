@@ -14,7 +14,7 @@ contract Fund is AccessControl {
     // Create states for each role
     // investors
     mapping(address => uint) public investments;
-    address[] investors;
+    address[] public investors;
     
     // policyholders
     struct Policy {
@@ -22,11 +22,11 @@ contract Fund is AccessControl {
         uint deposit;
         uint payAmount;
         uint payTermRemain;
-        uint paidTimeLast;
+        uint lastClaimTime;
         bool inforce;
     }
     mapping(address => Policy) public policies;
-    address[] policyholders;
+    address[] public policyholders;
     
     // oracles
     uint public inflation = 30000; // bps - to be /10000
@@ -41,7 +41,7 @@ contract Fund is AccessControl {
     // balancce sheet
     uint public assets;
     uint public liabilities;
-    uint public solvencyTarget = 150; // percent
+    uint public solvencyTarget = 150; // percent to be /100
     
     constructor (address root) {
         _setupRole(DEFAULT_ADMIN_ROLE, root);
@@ -60,7 +60,8 @@ contract Fund is AccessControl {
     }
     
     function maxDisvestValue(address _addr) external view returns(uint) {
-        uint max = investments[_addr] * (assets / liabilities / solvencyTarget / 100);
+        uint max_bps = assets * 10e4 / liabilities - solvencyTarget * 100;
+        uint max = investments[_addr] * max_bps / 10e4;
         return max;
     }
     
@@ -84,21 +85,26 @@ contract Fund is AccessControl {
         policies[msg.sender] = Policy({
             recipient: msg.sender,
             deposit: msg.value,
-            payAmount: msg.value / a_x,
+            payAmount: msg.value / (a_x / 100),
             payTermRemain: term,
-            paidTimeLast: block.timestamp,
+            lastClaimTime: block.timestamp,
             inforce: true
         });
         policyholders.push(msg.sender);
-        liabilities += msg.value / a_x * term;
+        liabilities += msg.value / (a_x / 100) * term;
     }
     
     function policyClaim () external payable onlyPolicyholder {
-        require(policies[msg.sender].inforce == false, "Policy is not inforce ");
+        require(policies[msg.sender].inforce == true, "Policy is not inforce ");
         Policy memory policy = policies[msg.sender];
-        uint termPay = Math.min((block.timestamp - policy.paidTimeLast) % payInterval, term);
+        uint termPay = Math.min((block.timestamp - policy.lastClaimTime) / payInterval, term);
         uint claimAmount = policy.payAmount * termPay;
         payable(msg.sender).transfer(claimAmount);
+        policies[msg.sender].lastClaimTime = block.timestamp;
+        policies[msg.sender].payTermRemain -= termPay;
+        if (policies[msg.sender].payTermRemain == 0) {
+            policies[msg.sender].inforce = false;
+        }
         liabilities -= claimAmount;
     }
     
@@ -111,8 +117,10 @@ contract Fund is AccessControl {
         liabilities = 0;
         for (uint i = 0; i < policyholders.length; i++){
             Policy memory policy = policies[policyholders[i]];
-            if (((block.timestamp - policy.paidTimeLast) % payInterval - term) > awolLimitTerm) {
-                policies[policyholders[i]].inforce == false;
+            uint current = block.timestamp;
+            uint awol = (current - policy.lastClaimTime) / payInterval;
+            if (awol > awolLimitTerm) {
+                policies[policyholders[i]].inforce = false;
             } else {
                 liabilities += policy.payAmount * policy.payTermRemain * (policy.inforce ? 1 : 0);
             }
@@ -120,7 +128,7 @@ contract Fund is AccessControl {
     }
     
     modifier isSolvent(){
-        require(assets / liabilities * 100 > solvencyTarget, "Must be above solvency target");
+        require(assets * 100 / liabilities > solvencyTarget, "Must be above solvency target");
         _;
     }
     
