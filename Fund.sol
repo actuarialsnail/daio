@@ -6,6 +6,14 @@ import "https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contr
 
 contract Fund is AccessControl {
     
+    // create events for websocket
+    event PolicyDeposit(address indexed _from, uint _value);
+    event PolicyClaim(address indexed _from, uint _value);
+    event PolicyLapse(address indexed _from, uint _value);
+    event InvestorDeposit(address indexed _from, uint _value);
+    event InvestorProfit(address indexed _investor, uint _value);
+    event InvestorSurplus(address indexed _investor, uint _value);
+
     // Create role identifiers
     bytes32 public constant INVESTOR_ROLE = keccak256("INVESTOR_ROLE");
     bytes32 public constant POLICYHOLDER_ROLE = keccak256("POLICYHOLDER_ROLE");
@@ -15,7 +23,7 @@ contract Fund is AccessControl {
     // investors
     struct Investment {
         address investor;
-        uint amount;
+        uint deposit;
         uint surplus;
     }
     mapping(address => Investment) public investments;
@@ -44,7 +52,8 @@ contract Fund is AccessControl {
     uint public fee = 100; // bps /10000
 
     // balancce sheet
-    uint public assets;
+    uint public deposits; //for surplus distribution
+    // assets are address(this).balance
     uint public liabilities;
     uint public solvencyTarget = 150; // percent to be /100
     
@@ -59,31 +68,33 @@ contract Fund is AccessControl {
     
     // investor functions
     function invest() external payable onlyInvestor() isNotTooSmall(msg.value) {
-        require(investments[msg.sender].amount == 0, "Must not have any invested yet");
+        require(investments[msg.sender].deposit == 0, "Must not have any invested yet");
         investments[msg.sender] = Investment({
             investor: msg.sender,
-            amount: msg.value,
+            deposit: msg.value,
             surplus: 0
         });
         investors.push(msg.sender);
-        assets += msg.value;
+        deposits += msg.value;
     }
     
     function disvest(uint amount) external payable onlyInvestor() isSolvent() {
-        uint max = investments[msg.sender].amount;
-        require(amount <= max, "Must not exceed the maximum investment value");
-        investments[msg.sender].amount -= amount;
-        assets -= amount;
+        uint max = investments[msg.sender].surplus;
+        require(amount <= max, "Must not exceed the maximum allocated surplus value");
+        investments[msg.sender].surplus -= amount;
         payable(msg.sender).transfer(amount);
+        emit InvestorDeposit(msg.sender, msg.value);
     }
     
     function investedValue() external onlyInvestor() view returns(uint) {
-        return investments[msg.sender].amount;
+        return investments[msg.sender].deposit;
     }
     
     // policyholder functions
     function policyRegister () external payable onlyPolicyholder isNotTooSmall(msg.value) {
-        require(policies[msg.sender].inforce == false, "Must be a new policyholder");
+        require(policies[msg.sender].inforce == false, "Must be a new policysholder");
+        uint maxAmount = address(this).balance - liabilities;
+        require(msg.value <= maxAmount, "Policy value is too high to ensure guaranteed payout");
         policies[msg.sender] = Policy({
             recipient: msg.sender,
             deposit: msg.value,
@@ -94,6 +105,7 @@ contract Fund is AccessControl {
         });
         policyholders.push(msg.sender);
         liabilities += msg.value * term * 100 / a_x;
+        emit PolicyDeposit(msg.sender, msg.value);
     }
     
     function policyClaim () external payable onlyPolicyholder {
@@ -113,6 +125,8 @@ contract Fund is AccessControl {
     // oracle functions
     // update basis - a_x
     
+    // insurer functions
+    
     function liabVal() external returns(uint) {
         // for each policy - liability value += payAmount * payTermRemain * (if inforce == true?)
         // update inforce to false when policy is lapsed (automatically) if no proof of survival is given for n interval
@@ -124,6 +138,7 @@ contract Fund is AccessControl {
             uint liab = policy.payAmount * policy.payTermRemain * (policy.inforce ? 1 : 0);
             if (awol > awolLimitTerm) {
                 policies[msg.sender].inforce = false;
+                emit PolicyLapse(msg.sender, liab);
                 profitSplit(liab);
             } else {
                 liabilities += liab;
@@ -135,27 +150,30 @@ contract Fund is AccessControl {
     function profitSplit(uint surplus) private {
         for (uint i = 0; i < investors.length; i++){
             Investment memory investment = investments[investors[i]];
-            uint share = surplus * investment.amount / assets;
+            uint share = surplus * investment.deposit / deposits;
             investments[investors[i]].surplus += share;
+            emit InvestorProfit(investors[i], share);
         }
     }
     
-    function surplusSplit() external {
+    function surplusRebalance() external {
         uint surplus = Math.min(address(this).balance - liabilities * solvencyTarget / 100, 0);
-        for (uint i = 0; i < investors.length; i++){
-            Investment memory investment = investments[investors[i]];
-            uint share = surplus * investment.amount / assets;
-            investments[investors[i]].surplus += share;
+        if (surplus > 0){
+            for (uint i = 0; i < investors.length; i++){
+                Investment memory investment = investments[investors[i]];
+                uint share = surplus * investment.deposit / deposits;
+                investments[investors[i]].surplus += share;
+            }    
         }
     }
     
     modifier isNotTooSmall(uint _value){
-        require(_value > 1e6, "Must be greater than 1,000,000 wei");
+        require(_value >= 1e6, "Must be greater than or equal to 1,000,000 wei");
         _;
     }
     
     modifier isSolvent(){
-        require(assets * 100 / liabilities > solvencyTarget, "Must be above solvency target");
+        require(address(this).balance * 100 / liabilities > solvencyTarget, "Must be above solvency target");
         _;
     }
     
