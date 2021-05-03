@@ -42,13 +42,12 @@ contract Fund is AccessControl {
     address[] public policyholders;
     
     // oracles
+    address[] public oracles;
     uint public inflation = 30000; // bps - to be /10000
     uint public term = 50; // number of payments - one per term 
     uint public a_x = 5000; // annuity factor - 2 decimals accuracy - to be /100
     uint public payInterval = 10 seconds; 
     uint public awolLimitTerm = 5; // number of terms to miss the claim before classified as dead
-    
-    // owner
     uint public fee = 100; // bps /10000
 
     // balancce sheet
@@ -94,7 +93,7 @@ contract Fund is AccessControl {
     function policyRegister () external payable onlyPolicyholder isNotTooSmall(msg.value) {
         require(policies[msg.sender].inforce == false, "Must be a new policysholder");
         uint maxAmount = address(this).balance - liabilities;
-        require(msg.value <= maxAmount, "Policy value is too high to ensure guaranteed payout");
+        require(msg.value <= maxAmount, "Policy value is too high compared to available surplus");
         policies[msg.sender] = Policy({
             recipient: msg.sender,
             deposit: msg.value,
@@ -124,6 +123,9 @@ contract Fund is AccessControl {
     
     // oracle functions
     // update basis - a_x
+    function update_a_x(uint axFactor) external onlyOracle {
+        a_x = axFactor;
+    }
     
     // insurer functions
     
@@ -148,12 +150,18 @@ contract Fund is AccessControl {
     }
     
     function profitSplit(uint surplus) private {
+        uint oracleFee = surplus * fee / 1e4;
+        this.payOracleFee(oracleFee);
         for (uint i = 0; i < investors.length; i++){
             Investment memory investment = investments[investors[i]];
             uint share = surplus * investment.deposit / deposits;
             investments[investors[i]].surplus += share;
             emit InvestorProfit(investors[i], share);
         }
+    }
+    
+    function payOracleFee(uint _fee) external payable {
+        payable(oracles[0]).transfer(_fee);
     }
     
     function surplusRebalance() external {
@@ -165,6 +173,24 @@ contract Fund is AccessControl {
                 investments[investors[i]].surplus += share;
             }    
         }
+    }
+    
+    function reset() external payable onlyAdmin {
+        for (uint i = 0; i < investors.length; i++){
+            investments[investors[i]].deposit = 0;
+            investments[investors[i]].surplus = 0;
+        }
+        delete investors;
+        
+        for (uint i = 0; i < policyholders.length; i++){
+            policies[policyholders[i]].inforce = false;
+        }
+        delete policyholders;
+        
+        delete oracles;
+        deposits = 0;
+        liabilities = 0;
+        payable(msg.sender).transfer(address(this).balance);
     }
     
     modifier isNotTooSmall(uint _value){
@@ -228,7 +254,14 @@ contract Fund is AccessControl {
     }
     
     function addOracke(address account) public virtual onlyAdmin {
+        require(oracles.length < 1, "Oracle has already been assigned");
         grantRole(ORACLE_ROLE, account);
+        oracles.push(account);
+    }
+    
+    function removeOracle(address account) public virtual onlyAdmin {
+        revokeRole(ORACLE_ROLE, account);
+        oracles.pop();
     }
     
 }
