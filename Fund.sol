@@ -13,7 +13,12 @@ contract Fund is AccessControl {
     
     // Create states for each role
     // investors
-    mapping(address => uint) public investments;
+    struct Investment {
+        address investor;
+        uint amount;
+        uint surplus;
+    }
+    mapping(address => Investment) public investments;
     address[] public investors;
     
     // policyholders
@@ -53,51 +58,48 @@ contract Fund is AccessControl {
     }
     
     // investor functions
-    function invest() external payable onlyInvestor() {
+    function invest() external payable onlyInvestor() isNotTooSmall(msg.value) {
+        require(investments[msg.sender].amount == 0, "Must not have any invested yet");
+        investments[msg.sender] = Investment({
+            investor: msg.sender,
+            amount: msg.value,
+            surplus: 0
+        });
         investors.push(msg.sender);
-        investments[msg.sender] += msg.value;
         assets += msg.value;
     }
     
-    function maxDisvestValue(address _addr) external view returns(uint) {
-        uint max_bps = assets * 10e4 / liabilities - solvencyTarget * 100;
-        uint max = investments[_addr] * max_bps / 10e4;
-        return max;
-    }
-    
     function disvest(uint amount) external payable onlyInvestor() isSolvent() {
-        uint max = this.maxDisvestValue(msg.sender);
-        require(amount < max, "Must be below the maximum investment value");
-        investments[msg.sender] -= amount;
+        uint max = investments[msg.sender].amount;
+        require(amount <= max, "Must not exceed the maximum investment value");
+        investments[msg.sender].amount -= amount;
         assets -= amount;
         payable(msg.sender).transfer(amount);
     }
     
     function investedValue() external onlyInvestor() view returns(uint) {
-        return investments[msg.sender];
+        return investments[msg.sender].amount;
     }
     
     // policyholder functions
-    function policyRegister () external payable onlyPolicyholder {
+    function policyRegister () external payable onlyPolicyholder isNotTooSmall(msg.value) {
         require(policies[msg.sender].inforce == false, "Must be a new policyholder");
-        require(msg.value > 100, "Must be greater than 100 wei");
-        
         policies[msg.sender] = Policy({
             recipient: msg.sender,
             deposit: msg.value,
-            payAmount: msg.value / (a_x / 100),
+            payAmount: msg.value * 100 / a_x ,
             payTermRemain: term,
             lastClaimTime: block.timestamp,
             inforce: true
         });
         policyholders.push(msg.sender);
-        liabilities += msg.value / (a_x / 100) * term;
+        liabilities += msg.value * term * 100 / a_x;
     }
     
     function policyClaim () external payable onlyPolicyholder {
         require(policies[msg.sender].inforce == true, "Policy is not inforce ");
         Policy memory policy = policies[msg.sender];
-        uint termPay = Math.min((block.timestamp - policy.lastClaimTime) / payInterval, term);
+        uint termPay = Math.min((block.timestamp - policy.lastClaimTime) / payInterval, policy.payTermRemain);
         uint claimAmount = policy.payAmount * termPay;
         payable(msg.sender).transfer(claimAmount);
         policies[msg.sender].lastClaimTime = block.timestamp;
@@ -111,7 +113,7 @@ contract Fund is AccessControl {
     // oracle functions
     // update basis - a_x
     
-    function liabVal () external {
+    function liabVal() external returns(uint) {
         // for each policy - liability value += payAmount * payTermRemain * (if inforce == true?)
         // update inforce to false when policy is lapsed (automatically) if no proof of survival is given for n interval
         liabilities = 0;
@@ -119,12 +121,37 @@ contract Fund is AccessControl {
             Policy memory policy = policies[policyholders[i]];
             uint current = block.timestamp;
             uint awol = (current - policy.lastClaimTime) / payInterval;
+            uint liab = policy.payAmount * policy.payTermRemain * (policy.inforce ? 1 : 0);
             if (awol > awolLimitTerm) {
-                policies[policyholders[i]].inforce = false;
+                policies[msg.sender].inforce = false;
+                profitSplit(liab);
             } else {
-                liabilities += policy.payAmount * policy.payTermRemain * (policy.inforce ? 1 : 0);
+                liabilities += liab;
             }
         }
+        return liabilities;
+    }
+    
+    function profitSplit(uint surplus) private {
+        for (uint i = 0; i < investors.length; i++){
+            Investment memory investment = investments[investors[i]];
+            uint share = surplus * investment.amount / assets;
+            investments[investors[i]].surplus += share;
+        }
+    }
+    
+    function surplusSplit() external {
+        uint surplus = Math.min(address(this).balance - liabilities * solvencyTarget / 100, 0);
+        for (uint i = 0; i < investors.length; i++){
+            Investment memory investment = investments[investors[i]];
+            uint share = surplus * investment.amount / assets;
+            investments[investors[i]].surplus += share;
+        }
+    }
+    
+    modifier isNotTooSmall(uint _value){
+        require(_value > 1e6, "Must be greater than 1,000,000 wei");
+        _;
     }
     
     modifier isSolvent(){
