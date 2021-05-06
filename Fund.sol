@@ -43,9 +43,9 @@ contract Fund is AccessControl {
     
     // oracles
     address[] public oracles;
-    uint public inflation = 30000; // bps - to be /10000
-    uint public term = 50; // number of payments - one per term 
-    uint public a_x = 5000; // annuity factor - 2 decimals accuracy - to be /100
+    uint public inflation = 50000; // bps - to be /10000
+    uint public term = 30; // number of payments - one per term 
+    uint public a_x = 1538; // annuity factor - 2 decimals accuracy - to be /100 - (1-(1+r)^-t)/r annuity certain
     uint public payInterval = 10 seconds; 
     uint public awolLimitTerm = 5; // number of terms to miss the claim before classified as dead
     uint public fee = 100; // bps /10000
