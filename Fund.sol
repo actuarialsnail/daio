@@ -55,6 +55,7 @@ contract Fund is AccessControl {
     // assets are address(this).balance
     uint public liabilities;
     uint public solvencyTarget = 150; // percent to be /100
+    uint public solvencyCeiling = 200; // percent to be /100
     
     // admin
     address[] public requestInvestors;
@@ -72,6 +73,8 @@ contract Fund is AccessControl {
     // investor functions
     function invest() external payable onlyInvestor() isNotTooSmall(msg.value) {
         require(investments[msg.sender].deposit == 0, "Must not have any invested yet");
+        uint max = liabilities * solvencyCeiling / solvencyTarget - address(this).balance;
+        require(msg.value <= max, "Must not exceed solvency ceiling");
         investments[msg.sender] = Investment({
             investor: msg.sender,
             deposit: msg.value,
@@ -96,8 +99,9 @@ contract Fund is AccessControl {
     // policyholder functions
     function policyRegister () external payable onlyPolicyholder isNotTooSmall(msg.value) {
         require(policies[msg.sender].inforce == false, "Must be a new policysholder");
-        uint maxAmount = address(this).balance - liabilities;
-        require(msg.value <= maxAmount, "Policy value is too high compared to available surplus");
+        uint max = address(this).balance - liabilities;
+        uint liability = msg.value * term * 100 / a_x;
+        require(liability <= max, "Policy value is too high compared to available surplus");
         policies[msg.sender] = Policy({
             recipient: msg.sender,
             deposit: msg.value,
@@ -107,7 +111,7 @@ contract Fund is AccessControl {
             inforce: true
         });
         policyholders.push(msg.sender);
-        liabilities += msg.value * term * 100 / a_x;
+        liabilities += liability;
         emit PolicyDeposit(msg.sender, msg.value);
     }
     
