@@ -56,6 +56,10 @@ contract Fund is AccessControl {
     uint public liabilities;
     uint public solvencyTarget = 150; // percent to be /100
     
+    // admin
+    address[] public requestInvestors;
+    address[] public requestPolicyholders;
+    
     constructor (address root) {
         _setupRole(DEFAULT_ADMIN_ROLE, root);
     }
@@ -181,11 +185,13 @@ contract Fund is AccessControl {
             investments[investors[i]].surplus = 0;
         }
         delete investors;
+        delete requestInvestors;
         
         for (uint i = 0; i < policyholders.length; i++){
             policies[policyholders[i]].inforce = false;
         }
         delete policyholders;
+        delete requestPolicyholders;
         
         delete oracles;
         deposits = 0;
@@ -229,6 +235,20 @@ contract Fund is AccessControl {
     
     function addInvestor(address account) public virtual onlyAdmin {
         grantRole(INVESTOR_ROLE, account);
+        for (uint i = 0; i < requestInvestors.length; i++){
+            if (requestInvestors[i] == account) {
+                requestInvestors[i] = requestInvestors[requestInvestors.length - 1];
+                requestInvestors.pop();
+            }
+        }
+    }
+    
+    function requestInvestor() public {
+        requestInvestors.push(msg.sender);
+    }
+    
+    function removeInvestor() public virtual onlyInvestor {
+        revokeRole(INVESTOR_ROLE, msg.sender);
     }
     
     modifier onlyPolicyholder() {
@@ -242,6 +262,20 @@ contract Fund is AccessControl {
     
     function addPolicyholder(address account) public virtual onlyAdmin {
         grantRole(POLICYHOLDER_ROLE, account);
+        for (uint i = 0; i < requestPolicyholders.length; i++){
+            if (requestPolicyholders[i] == account) {
+                requestPolicyholders[i] = requestPolicyholders[requestPolicyholders.length - 1];
+                requestPolicyholders.pop();
+            }
+        }
+    }
+    
+    function requestPolicyholder() public {
+        requestPolicyholders.push(msg.sender);
+    }
+    
+    function removePolicyholder() public virtual onlyPolicyholder {
+        revokeRole(POLICYHOLDER_ROLE, msg.sender);
     }
     
     modifier onlyOracle() {
