@@ -11,7 +11,6 @@ contract Fund is AccessControl {
     event PolicyClaim(address indexed _from, uint _value);
     event PolicyLapse(address indexed _from, uint _value);
     event InvestorDeposit(address indexed _from, uint _value);
-    event InvestorProfit(address indexed _investor, uint _value);
     event InvestorSurplus(address indexed _investor, uint _value);
 
     // Create role identifiers
@@ -50,6 +49,7 @@ contract Fund is AccessControl {
     uint public payInterval = 10 seconds; 
     uint public awolLimitTerm = 5; // number of terms to miss the claim before classified as dead
     uint public fee = 100; // bps /10000
+    uint public lastOraclePayTime = 0;
 
     // balancce sheet
     uint public deposits; //for surplus distribution
@@ -70,6 +70,7 @@ contract Fund is AccessControl {
     
     constructor (address root) {
         _setupRole(DEFAULT_ADMIN_ROLE, root);
+        oracles.push(root); // assume that the owner is the default oracle
     }
     
     // admin functions
@@ -84,12 +85,16 @@ contract Fund is AccessControl {
             uint max = liabilities * solvencyCeiling / solvencyTarget - address(this).balance;
             require(msg.value <= max, "Must not exceed solvency ceiling");
         }
-        investments[msg.sender] = Investment({
-            investor: msg.sender,
-            deposit: msg.value,
-            surplus: 0
-        });
-        investors.push(msg.sender);
+        if (investments[msg.sender].deposit > 0) {
+            investments[msg.sender].deposit += msg.value;
+        } else {
+            investments[msg.sender] = Investment({
+                investor: msg.sender,
+                deposit: msg.value,
+                surplus: 0
+            });
+            investors.push(msg.sender);
+        }
         deposits += msg.value;
     }
     
@@ -107,7 +112,7 @@ contract Fund is AccessControl {
     
     // policyholder functions
     function policyRegister () external payable onlyPolicyholder isNotTooSmall(msg.value) {
-        require(policies[msg.sender].inforce == false, "Must be a new policysholder");
+        require(policies[msg.sender].inforce == false && policies[msg.sender].deposit == 0, "Must be a new policysholder");
         uint max = address(this).balance - liabilities;
         uint liability = msg.value * term * 100 / a_x;
         require(liability <= max, "Policy value is too high compared to available surplus");
@@ -148,6 +153,10 @@ contract Fund is AccessControl {
     
     // insurer functions
     
+    function balance() external view returns(uint) {
+        return address(this).balance;
+    }
+    
     function liabVal() external returns(uint) {
         // for each policy - liability value += payAmount * payTermRemain * (if inforce == true?)
         // update inforce to false when policy is lapsed (automatically) if no proof of survival is given for n interval
@@ -160,36 +169,32 @@ contract Fund is AccessControl {
             if (awol > awolLimitTerm) {
                 policies[msg.sender].inforce = false;
                 emit PolicyLapse(msg.sender, liab);
-                profitSplit(liab);
             } else {
                 liabilities += liab;
             }
         }
+        surplusRebalance();
         return liabilities;
-    }
-    
-    function profitSplit(uint surplus) private {
-        uint oracleFee = surplus * fee / 1e4;
-        this.payOracleFee(oracleFee);
-        for (uint i = 0; i < investors.length; i++){
-            Investment memory investment = investments[investors[i]];
-            uint share = surplus * investment.deposit / deposits;
-            investments[investors[i]].surplus += share;
-            emit InvestorProfit(investors[i], share);
-        }
     }
     
     function payOracleFee(uint _fee) external payable {
         payable(oracles[0]).transfer(_fee);
     }
     
-    function surplusRebalance() external {
-        uint surplus = Math.min(address(this).balance - liabilities * solvencyTarget / 100, 0);
+    function surplusRebalance() public {
+        uint surplus = Math.max(address(this).balance - liabilities * solvencyTarget / 100, 0);
         if (surplus > 0){
+            uint oracleFee = 0;
+            if ((block.timestamp - lastOraclePayTime) / payInterval > 1){
+                oracleFee = surplus * fee / 1e4;
+                lastOraclePayTime = block.timestamp;
+                this.payOracleFee(oracleFee);
+            }
+            uint netSurplus = surplus - oracleFee;
             for (uint i = 0; i < investors.length; i++){
                 Investment memory investment = investments[investors[i]];
-                uint share = surplus * investment.deposit / deposits;
-                investments[investors[i]].surplus += share;
+                uint share = netSurplus * investment.deposit / deposits;
+                investments[investors[i]].surplus = share;
             }    
         }
     }
@@ -220,7 +225,9 @@ contract Fund is AccessControl {
     }
     
     modifier isSolvent(){
-        require(address(this).balance * 100 / liabilities > solvencyTarget, "Must be above solvency target");
+        if (liabilities > 0){
+            require(address(this).balance * 100 / liabilities >= solvencyTarget, "Must be above solvency target");
+        }
         _;
     }
     
