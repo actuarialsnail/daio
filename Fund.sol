@@ -99,11 +99,11 @@ contract Fund is AccessControl {
         deposits += msg.value;
     }
     
-    function disvest(uint amount) external payable onlyInvestor() isSolvent() {
+    function disvest() external payable onlyInvestor() isSolvent() {
         uint max = investments[msg.sender].surplus;
-        require(amount <= max, "Must not exceed the maximum allocated surplus value");
-        investments[msg.sender].surplus -= amount;
-        payable(msg.sender).transfer(amount);
+        // require(amount <= max, "Must not exceed the maximum allocated surplus value");
+        investments[msg.sender].surplus -= max;
+        payable(msg.sender).transfer(max);
         emit InvestorDeposit(msg.sender, msg.value);
     }
     
