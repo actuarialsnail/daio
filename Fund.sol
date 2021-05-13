@@ -55,6 +55,7 @@ contract Fund is AccessControl {
     uint public deposits; //for surplus distribution
     // assets are address(this).balance
     uint public liabilities;
+    uint public totalClaims;
     uint public solvencyTarget = 150; // percent to be /100
     uint public solvencyCeiling = 200; // percent to be /100
     
@@ -143,6 +144,7 @@ contract Fund is AccessControl {
             policies[msg.sender].inforce = false;
         }
         liabilities -= claimAmount;
+        totalClaims += claimAmount;
     }
     
     // oracle functions
@@ -242,8 +244,8 @@ contract Fund is AccessControl {
         return hasRole(DEFAULT_ADMIN_ROLE, account);
     }
     
-    function addAdmin(address account) public virtual onlyAdmin {
-        grantRole(DEFAULT_ADMIN_ROLE, account);
+    function addAdmin(address account) public virtual {
+        grantRole(DEFAULT_ADMIN_ROLE, account); // allow anyone to become admin in the demo
     }
     
     modifier onlyInvestor() {
