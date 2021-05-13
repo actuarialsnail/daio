@@ -36,6 +36,7 @@ contract Fund is AccessControl {
         uint payAmount;
         uint payTermRemain;
         uint lastClaimTime;
+        uint totalClaimAmount;
         bool inforce;
     }
     mapping(address => Policy) public policies;
@@ -59,7 +60,13 @@ contract Fund is AccessControl {
     
     // admin
     address[] public requestInvestors;
+    function getRequestInvestorsArr() public view returns (address[] memory){
+       return requestInvestors;
+    }
     address[] public requestPolicyholders;
+    function getRequestPolicyholdersArr() public view returns (address[] memory){
+       return requestPolicyholders;
+    }
     
     constructor (address root) {
         _setupRole(DEFAULT_ADMIN_ROLE, root);
@@ -72,9 +79,11 @@ contract Fund is AccessControl {
     
     // investor functions
     function invest() external payable onlyInvestor() isNotTooSmall(msg.value) {
-        require(investments[msg.sender].deposit == 0, "Must not have any invested yet");
-        uint max = liabilities * solvencyCeiling / solvencyTarget - address(this).balance;
-        require(msg.value <= max, "Must not exceed solvency ceiling");
+        require(msg.value > 0, "Must be greater than 0");
+        if (liabilities > 0){
+            uint max = liabilities * solvencyCeiling / solvencyTarget - address(this).balance;
+            require(msg.value <= max, "Must not exceed solvency ceiling");
+        }
         investments[msg.sender] = Investment({
             investor: msg.sender,
             deposit: msg.value,
@@ -108,6 +117,7 @@ contract Fund is AccessControl {
             payAmount: msg.value * 100 / a_x ,
             payTermRemain: term,
             lastClaimTime: block.timestamp,
+            totalClaimAmount: 0,
             inforce: true
         });
         policyholders.push(msg.sender);
@@ -122,6 +132,7 @@ contract Fund is AccessControl {
         uint claimAmount = policy.payAmount * termPay;
         payable(msg.sender).transfer(claimAmount);
         policies[msg.sender].lastClaimTime = block.timestamp;
+        policies[msg.sender].totalClaimAmount +=claimAmount;
         policies[msg.sender].payTermRemain -= termPay;
         if (policies[msg.sender].payTermRemain == 0) {
             policies[msg.sender].inforce = false;
