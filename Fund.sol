@@ -22,7 +22,7 @@ contract Fund is AccessControl {
     // Create states for each role
     // investors
     struct Investment {
-        address investor;
+        // address investor;
         uint deposit;
         uint surplus;
     }
@@ -31,7 +31,7 @@ contract Fund is AccessControl {
     
     // policyholders
     struct Policy {
-        address recipient;
+        // address recipient;
         uint deposit;
         uint payAmount;
         uint payTermRemain;
@@ -91,7 +91,7 @@ contract Fund is AccessControl {
             investments[msg.sender].deposit += msg.value;
         } else {
             investments[msg.sender] = Investment({
-                investor: msg.sender,
+                // investor: msg.sender,
                 deposit: msg.value,
                 surplus: 0
             });
@@ -103,9 +103,10 @@ contract Fund is AccessControl {
     function disvest() external payable onlyInvestor() isSolvent() {
         uint max = investments[msg.sender].surplus;
         // require(amount <= max, "Must not exceed the maximum allocated surplus value");
+        investments[msg.sender].deposit = 0;
         investments[msg.sender].surplus -= max;
         payable(msg.sender).transfer(max);
-        emit InvestorDeposit(msg.sender, msg.value);
+        emit InvestorSurplus(msg.sender, msg.value);
     }
     
     function investedValue() external onlyInvestor() view returns(uint) {
@@ -119,7 +120,7 @@ contract Fund is AccessControl {
         uint liability = msg.value * term * 100 / a_x;
         require(liability <= max, "Policy value is too high compared to available surplus");
         policies[msg.sender] = Policy({
-            recipient: msg.sender,
+            // recipient: msg.sender,
             deposit: msg.value,
             payAmount: msg.value * 100 / a_x ,
             payTermRemain: term,
