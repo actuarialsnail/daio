@@ -16,6 +16,7 @@ contract Fund is AccessControl {
     // Create role identifiers
     bytes32 public constant INVESTOR_ROLE = keccak256("INVESTOR_ROLE");
     bytes32 public constant POLICYHOLDER_ROLE = keccak256("POLICYHOLDER_ROLE");
+    bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
     bytes32 public constant ORACLE_ROLE = keccak256("ORACLE_ROLE");
     
     // Create states for each role
@@ -241,11 +242,11 @@ contract Fund is AccessControl {
     }
     
     function isAdmin(address account) public virtual view returns (bool) {
-        return hasRole(DEFAULT_ADMIN_ROLE, account);
+        return hasRole(ADMIN_ROLE, account);
     }
     
-    function addAdmin(address account) public virtual {
-        grantRole(DEFAULT_ADMIN_ROLE, account); // allow anyone to become admin in the demo
+    function addAdmin(address account) public virtual { // without modifiers so that anyone can become an admin in the demo 
+        _setupRole(ADMIN_ROLE, account);    // use _setupRole instead of grantRole so that anyone can become an admin in the demo
     }
     
     modifier onlyInvestor() {
@@ -258,7 +259,7 @@ contract Fund is AccessControl {
     }
     
     function addInvestor(address account) public virtual onlyAdmin {
-        grantRole(INVESTOR_ROLE, account);
+        _setupRole(INVESTOR_ROLE, account);  // use _setupRole instead of grantRole so that self-admin is permitted in the demo
         for (uint i = 0; i < requestInvestors.length; i++){
             if (requestInvestors[i] == account) {
                 requestInvestors[i] = requestInvestors[requestInvestors.length - 1];
@@ -285,7 +286,7 @@ contract Fund is AccessControl {
     }
     
     function addPolicyholder(address account) public virtual onlyAdmin {
-        grantRole(POLICYHOLDER_ROLE, account);
+        _setupRole(POLICYHOLDER_ROLE, account); // use _setupRole instead of grantRole so that self-admin is permitted in the demo
         for (uint i = 0; i < requestPolicyholders.length; i++){
             if (requestPolicyholders[i] == account) {
                 requestPolicyholders[i] = requestPolicyholders[requestPolicyholders.length - 1];
@@ -308,12 +309,17 @@ contract Fund is AccessControl {
     }
     
     function isOracle(address account) public virtual view returns (bool) {
-        return hasRole(ORACLE_ROLE, account);
+        return hasRole(ORACLE_ROLE, account) && account == oracles[0]; // ensure the most recent oracle is the true oracle
+    }
+    
+    function isPastOracle(address account) public virtual view returns (bool) {
+        return hasRole(ORACLE_ROLE, account) && account != oracles[0]; // ensure clarity that the most recent oracle is the true oracle
     }
     
     function addOracke(address account) public virtual onlyAdmin {
-        require(oracles.length < 1, "Oracle has already been assigned");
-        grantRole(ORACLE_ROLE, account);
+        // require(oracles.length < 1, "Oracle has already been assigned");
+        _setupRole(ORACLE_ROLE, account); // use _setupRole instead of grantRole so that self-admin is permitted in the demo
+        delete oracles;
         oracles.push(account);
     }
     
