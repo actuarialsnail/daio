@@ -268,8 +268,14 @@ contract Fund is AccessControl {
         }
     }
     
-    function requestInvestor() public {
+    function requestInvestor() public returns (bool){
+        for (uint i = 0; i < requestInvestors.length; i++){
+            if (requestInvestors[i] == msg.sender) {
+                return true; // ensure unique
+            }
+        }
         requestInvestors.push(msg.sender);
+        return true;
     }
     
     function removeInvestor() public virtual onlyInvestor {
@@ -295,8 +301,14 @@ contract Fund is AccessControl {
         }
     }
     
-    function requestPolicyholder() public {
+    function requestPolicyholder() public returns (bool) {
+        for (uint i = 0; i < requestPolicyholders.length; i++){
+            if (requestPolicyholders[i] == msg.sender) {
+                return true; // ensure unique
+            }
+        }
         requestPolicyholders.push(msg.sender);
+        return true;
     }
     
     function removePolicyholder() public virtual onlyPolicyholder {
