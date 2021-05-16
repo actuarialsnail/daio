@@ -83,7 +83,7 @@ contract Fund is AccessControl {
     // investor functions
     function invest() external payable onlyInvestor() isNotTooSmall(msg.value) {
         require(msg.value > 0, "Must be greater than 0");
-        if (liabilities > 0){
+        if (liabilities > 1 gwei){ // small residual may present due to rounding 
             uint max = liabilities * solvencyCeiling / solvencyTarget - address(this).balance;
             require(msg.value <= max, "Must not exceed solvency ceiling");
         }
@@ -103,6 +103,7 @@ contract Fund is AccessControl {
     function disvest() external payable onlyInvestor() isSolvent() {
         uint max = investments[msg.sender].surplus;
         // require(amount <= max, "Must not exceed the maximum allocated surplus value");
+        deposits -= investments[msg.sender].deposit;
         investments[msg.sender].deposit = 0;
         investments[msg.sender].surplus -= max;
         payable(msg.sender).transfer(max);
@@ -177,22 +178,22 @@ contract Fund is AccessControl {
                 liabilities += liab;
             }
         }
-        surplusRebalance();
+        surplusRebalance(msg.sender);
         return liabilities;
     }
     
-    function payOracleFee(uint _fee) external payable {
-        payable(oracles[0]).transfer(_fee);
+    function payOracleFee(uint _fee, address oracle) external payable {
+        payable(oracle).transfer(_fee);
     }
     
-    function surplusRebalance() public {
+    function surplusRebalance(address executor) public {
         uint surplus = Math.max(address(this).balance - liabilities * solvencyTarget / 100, 0);
         if (surplus > 0){
             uint oracleFee = 0;
             if ((block.timestamp - lastOraclePayTime) / payInterval > 1){
                 oracleFee = surplus * fee / 1e4;
                 lastOraclePayTime = block.timestamp;
-                this.payOracleFee(oracleFee);
+                this.payOracleFee(oracleFee, executor);
             }
             uint netSurplus = surplus - oracleFee;
             for (uint i = 0; i < investors.length; i++){
@@ -213,13 +214,31 @@ contract Fund is AccessControl {
         
         for (uint i = 0; i < policyholders.length; i++){
             policies[policyholders[i]].inforce = false;
+            policies[policyholders[i]].deposit = 0;
+            policies[policyholders[i]].payAmount = 0;
+            policies[policyholders[i]].payTermRemain = 0;
+            policies[policyholders[i]].lastClaimTime = 0;
+            policies[policyholders[i]].totalClaimAmount = 0;
         }
         delete policyholders;
         delete requestPolicyholders;
-        
+
         delete oracles;
+        
+        inflation = 50000; // bps - to be /10000
+        term = 30; // number of payments - one per term 
+        a_x = 1538; // annuity factor - 2 decimals accuracy - to be /100 - (1-(1+r)^-t)/r annuity certain
+        payInterval = 10 seconds; 
+        awolLimitTerm = 5; // number of terms to miss the claim before classified as dead
+        fee = 100; // bps /10000
+        lastOraclePayTime = 0;
+        
         deposits = 0;
         liabilities = 0;
+        totalClaims = 0;
+        solvencyTarget = 150; // percent to be /100
+        solvencyCeiling = 200; // percent to be /100
+        
         payable(msg.sender).transfer(address(this).balance);
     }
     
