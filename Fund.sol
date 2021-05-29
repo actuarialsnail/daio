@@ -84,7 +84,7 @@ contract Fund is AccessControl {
     function invest() external payable onlyInvestor() isNotTooSmall(msg.value) {
         require(msg.value > 0, "Must be greater than 0");
         if (liabilities > 1 gwei){ // small residual may present due to rounding 
-            uint max = liabilities * solvencyCeiling / solvencyTarget - address(this).balance;
+            uint max = liabilities * solvencyCeiling / 100 - address(this).balance;
             require(msg.value <= max, "Must not exceed solvency ceiling");
         }
         if (investments[msg.sender].deposit > 0) {
